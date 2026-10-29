@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.hugorolimf.inbox",
+  "name": "Island Inbox",
+  "version": "1.0.0",
+  "author": "Hugo Rolim Filho",
+  "license": "MIT",
+  "homepage": "https://github.com/hugorolimf/omarchy-island-inbox",
+  "description": "Notification history in a bell on the bar, grouped by app, in the Island look, in English or Portuguese",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Island Inbox",
+    "description": "Notification history grouped by app",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
