@@ -167,9 +167,22 @@ Panel {
     Quickshell.execDetached(["omarchy-shell", "-q", "notifications", "clear"])
   }
   function selectEntry(e) { selectedFile = selectedFile === e.file ? "" : e.file }
+  // Clipboard writes go through wl-copy's stdin: an argument would show the
+  // text to any account that can read process command lines.
+  property string clipboardText: ""
+  function copyText(text) {
+    clipboardText = String(text || "")
+    clipboardProc.stdinEnabled = true
+    clipboardProc.running = true
+  }
+  Process {
+    id: clipboardProc
+    command: ["wl-copy"]
+    onStarted: { write(root.clipboardText); stdinEnabled = false; root.clipboardText = "" }
+  }
   function copyEntry(e) {
     var text = [plain(e.summary), plain(e.body)].filter(function(t) { return t !== "" }).join("\n")
-    Quickshell.execDetached(["wl-copy", "--", text])
+    copyText(text)
   }
   function toggleGroup(name) {
     var next = Object.assign({}, expanded)
