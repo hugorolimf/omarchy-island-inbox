@@ -17,11 +17,26 @@ Panel {
   moduleName: "io.github.hugorolimf.inbox"
   // Portuguese, or English for every other locale.
   readonly property bool portuguese: Qt.locale().name.indexOf("pt") === 0
-  readonly property var enText: ({"Notificações": "Notifications", "LIMPAR TUDO": "CLEAR ALL", "Nenhuma notificação": "No notifications", "MOSTRAR MENOS": "SHOW LESS", "MOSTRAR TODAS": "SHOW ALL", "LIMPAR": "CLEAR"})
+  readonly property var enText: ({"Notificações": "Notifications", "LIMPAR TUDO": "CLEAR ALL", "Nenhuma notificação": "No notifications", "MOSTRAR MENOS": "SHOW LESS", "MOSTRAR TODAS": "SHOW ALL", "LIMPAR": "CLEAR", "Não perturbe": "Do not disturb"})
   function tr(text) { return portuguese || enText[text] === undefined ? text : enText[text] }
   manageIpc: false
 
   property var anchorItem: null
+  // Do Not Disturb (was a bar indicator), through the notifications
+  // service's IPC; read again on every open.
+  property bool dnd: false
+  onOpenedChanged: if (opened) dndProc.running = true
+  function setDnd(on) {
+    dnd = on
+    Quickshell.execDetached(["omarchy-shell", "notifications", "setDnd", on ? "on" : "off"])
+  }
+  Process {
+    id: dndProc
+    command: ["omarchy-shell", "notifications", "isDnd"]
+    stdout: StdioCollector {
+      onStreamFinished: root.dnd = text.trim() === "on"
+    }
+  }
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
 
@@ -275,12 +290,29 @@ Panel {
               font.pixelSize: 15
               font.weight: Font.DemiBold
             }
-            Pill {
+            Row {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              visible: root.entries.length > 0
-              label: root.tr("LIMPAR TUDO")
-              onActivated: root.clearAll()
+              spacing: Style.space(10)
+              // silences the toasts; the history keeps filling
+              ToggleSwitch {
+                id: dndSwitch
+                anchors.verticalCenter: parent.verticalCenter
+                checked: root.dnd
+                foreground: root.bar ? root.bar.foreground : Anatomy.strong
+                onToggled: root.setDnd(!checked)
+                PanelToolTip {
+                  visible: dndSwitch.containsMouse
+                  text: root.tr("Não perturbe")
+                  fontFamily: Anatomy.sans
+                }
+              }
+              Pill {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.entries.length > 0
+                label: root.tr("LIMPAR TUDO")
+                onActivated: root.clearAll()
+              }
             }
           }
 
