@@ -283,6 +283,7 @@ Panel {
             width: parent.width
             height: Style.space(28)
             Text {
+              textFormat: Text.PlainText
               anchors.verticalCenter: parent.verticalCenter
               text: root.tr("Notificações")
               color: Anatomy.strong
@@ -330,6 +331,7 @@ Panel {
               path: Anatomy.icons.bell
             }
             Text {
+              textFormat: Text.PlainText
               anchors.horizontalCenter: parent.horizontalCenter
               text: root.tr("Nenhuma notificação")
               color: Anatomy.muted
@@ -363,6 +365,7 @@ Panel {
     Behavior on color { ColorAnimation { duration: Anatomy.fast } }
     Text {
       id: pillText
+      textFormat: Text.PlainText
       anchors.centerIn: parent
       text: pill.label
       color: pill.accent ? Anatomy.strong : Anatomy.text
@@ -404,6 +407,7 @@ Panel {
       sourceSize.height: 96
     }
     Text {
+      textFormat: Text.PlainText
       anchors.centerIn: parent
       visible: img.status !== Image.Ready
       text: tile.name.charAt(0).toUpperCase()
@@ -474,6 +478,7 @@ Panel {
           name: groupView.group.name
         }
         Text {
+          textFormat: Text.PlainText
           anchors.left: headIcon.right
           anchors.leftMargin: Style.space(8)
           anchors.verticalCenter: parent.verticalCenter
@@ -615,6 +620,7 @@ Panel {
         height: titleText.implicitHeight
         Text {
           id: titleText
+          textFormat: Text.PlainText
           width: parent.width - timeText.implicitWidth - Style.space(8)
           text: root.plain(card.entry.summary) || card.appName
           color: Anatomy.strong
@@ -625,6 +631,7 @@ Panel {
         }
         Text {
           id: timeText
+          textFormat: Text.PlainText
           anchors.right: parent.right
           anchors.baseline: titleText.baseline
           opacity: closeArea.containsMouse || cardArea.containsMouse ? 0 : 1
@@ -636,6 +643,7 @@ Panel {
         }
       }
       Text {
+        textFormat: Text.PlainText
         width: parent.width
         visible: text !== ""
         text: root.plain(card.entry.body)
