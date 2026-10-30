@@ -39,6 +39,19 @@ BarWidget {
   readonly property bool needsKit: !kitPresent || widgetLoader.status === Loader.Error
   readonly property bool portuguese: Qt.locale().name.indexOf("pt") === 0
   property string kitState: "idle"  // "idle" | "busy" | "failed"
+  // The install's progress bar, 0..1. omarchy plugin add tells no percentage,
+  // so it eases most of the way while the Kit downloads, then fills at the end.
+  property real kitProgress: 0
+  NumberAnimation {
+    id: progressCreep
+    target: root; property: "kitProgress"
+    to: 0.9; duration: 14000; easing.type: Easing.OutCubic
+  }
+  NumberAnimation {
+    id: progressFill
+    target: root; property: "kitProgress"
+    to: 1; duration: 260; easing.type: Easing.OutCubic
+  }
 
   // Shape contract for shell.summon/hide/toggle (Bar.findPanelWidget) and the
   // popout coordinator, for bars that only see this item. `opened` stays
@@ -95,6 +108,9 @@ BarWidget {
   function installKit() {
     if (kitState === "busy") return
     kitState = "busy"
+    kitProgress = 0
+    progressFill.stop()
+    progressCreep.restart()
     kitProc.command = root.kitPresent
       ? ["omarchy", "plugin", "update", root.kitId, "--yes"]
       : ["omarchy", "plugin", "add", root.kitUrl, "--yes"]
@@ -105,12 +121,23 @@ BarWidget {
     id: kitProc
     stderr: StdioCollector { id: kitErr }
     onExited: function(exitCode) {
+      progressCreep.stop()
       if (exitCode === 0) {
-        Quickshell.execDetached(["omarchy-restart-shell"])
+        // The bar fills, then the shell restarts and loads the widget for real.
+        progressFill.restart()
+        restartDelay.restart()
       } else {
         console.warn(root.moduleName + ": installing Island Kit failed: " + kitErr.text)
         root.kitState = "failed"
       }
+    }
+  }
+
+  Timer {
+    id: restartDelay
+    interval: 450
+    onTriggered: {
+      Quickshell.execDetached(["omarchy-restart-shell"])
     }
   }
 
@@ -132,7 +159,19 @@ BarWidget {
     color: Qt.rgba(ink.r, ink.g, ink.b, mouse.containsMouse ? 0.18 : 0.10)
     border.width: 1
     border.color: Qt.rgba(ink.r, ink.g, ink.b, 0.35)
-    opacity: root.kitState === "busy" ? 0.6 : 1
+    clip: true
+
+    // Fills while the Kit installs; stays put, red, if it failed.
+    Rectangle {
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      width: parent.width * root.kitProgress
+      radius: parent.radius
+      visible: root.kitState !== "idle"
+      color: root.kitState === "failed" ? Qt.rgba(0.94, 0.33, 0.31, 0.35) : Qt.rgba(0.36, 0.55, 0.98, 0.45)
+      Behavior on color { ColorAnimation { duration: 200 } }
+    }
 
     Text {
       id: fallbackText
