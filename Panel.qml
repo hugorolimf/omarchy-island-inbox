@@ -17,13 +17,15 @@ Panel {
   moduleName: "io.github.hugorolimf.inbox"
   // Portuguese, or English for every other locale.
   readonly property bool portuguese: Qt.locale().name.indexOf("pt") === 0
-  readonly property var enText: ({"Notificações": "Notifications", "LIMPAR TUDO": "CLEAR ALL", "Nenhuma notificação": "No notifications", "MOSTRAR MENOS": "SHOW LESS", "MOSTRAR TODAS": "SHOW ALL", "LIMPAR": "CLEAR", "Não perturbe": "Do not disturb"})
+  readonly property var enText: ({"Notificações": "Notifications", "LIMPAR TUDO": "CLEAR ALL", "Nenhuma notificação": "No notifications", "MOSTRAR MENOS": "SHOW LESS", "MOSTRAR TODAS": "SHOW ALL", "LIMPAR": "CLEAR", "Não perturbe": "Do not disturb",
+    "LIGADO": "ON", "DESLIGADO": "OFF", "Os avisos aparecem na tela.": "Alerts show on screen.", "Os avisos não aparecem na tela; ficam guardados aqui.": "Alerts stay off the screen and are kept here."})
   function tr(text) { return portuguese || enText[text] === undefined ? text : enText[text] }
   manageIpc: false
 
   property var anchorItem: null
-  // Do Not Disturb (was a bar indicator), through the notifications
-  // service's IPC; read again on every open.
+  // Do Not Disturb, through the notifications service's IPC. Read at start,
+  // on every open and whenever its settings file changes (a shortcut may
+  // switch it too), so the bell on the bar always tells (red, slashed).
   property bool dnd: false
   onOpenedChanged: if (opened) dndProc.running = true
   function setDnd(on) {
@@ -37,6 +39,23 @@ Panel {
       onStreamFinished: root.dnd = text.trim() === "on"
     }
   }
+  Process {
+    id: dndWatch
+    running: true
+    command: ["bash", "-c", "mkdir -p \"$1\"; exec inotifywait -m -q -e close_write,moved_to --include 'notifications\\.json$' \"$1\"", "--", root.home + "/.local/state/omarchy"]
+    stdout: SplitParser { onRead: dndSoon.restart() }
+    onExited: dndWatchRetry.restart()
+  }
+  Timer { id: dndWatchRetry; interval: 5000; onTriggered: dndWatch.running = true }
+  Timer { id: dndSoon; interval: 150; onTriggered: if (!dndProc.running) dndProc.running = true }
+
+  // Clearing rings the bell on the bar (clearSerial) and the cards leave one
+  // after the other before their files go.
+  property int clearSerial: 0
+  property bool clearingAll: false
+  // the panel's height follows its content smoothly while open
+  property real panelHeight: column.implicitHeight
+  Behavior on panelHeight { enabled: root.opened; NumberAnimation { duration: 280; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
 
@@ -163,8 +182,19 @@ Panel {
   function removeEntry(e) { removeFiles([e.file]) }
   function clearGroup(g) { removeFiles(g.items.map(function(e) { return e.file })) }
   function clearAll() {
-    entries = []
-    Quickshell.execDetached(["omarchy-shell", "-q", "notifications", "clear"])
+    if (clearingAll || entries.length === 0) return
+    clearingAll = true
+    clearSerial++
+    clearAllTimer.interval = Math.min(groups.length, 8) * 45 + 300
+    clearAllTimer.restart()
+  }
+  Timer {
+    id: clearAllTimer
+    onTriggered: {
+      root.entries = []
+      root.clearingAll = false
+      Quickshell.execDetached(["omarchy-shell", "-q", "notifications", "clear"])
+    }
   }
   function selectEntry(e) { selectedFile = selectedFile === e.file ? "" : e.file }
   // Clipboard writes go through wl-copy's stdin: an argument would show the
@@ -229,7 +259,7 @@ Panel {
       }
     }
   }
-  Component.onCompleted: refresh()
+  Component.onCompleted: { refresh(); dndProc.running = true }
 
   // live: a file written, moved in or removed in the history folder
   Process {
@@ -272,7 +302,7 @@ Panel {
     centerOnBar: false
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(380))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight)
+    contentHeight: panel.fittedContentHeight(root.panelHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -304,35 +334,24 @@ Panel {
               font.pixelSize: 15
               font.weight: Font.DemiBold
             }
-            Row {
+            Pill {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(10)
-              // silences the toasts; the history keeps filling
-              ToggleSwitch {
-                id: dndSwitch
-                anchors.verticalCenter: parent.verticalCenter
-                checked: root.dnd
-                foreground: root.bar ? root.bar.foreground : Anatomy.strong
-                onToggled: root.setDnd(!checked)
-                PanelToolTip {
-                  visible: dndSwitch.containsMouse
-                  text: root.tr("Não perturbe")
-                  fontFamily: Anatomy.sans
-                }
-              }
-              Pill {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.entries.length > 0
-                label: root.tr("LIMPAR TUDO")
-                onActivated: root.clearAll()
-              }
+              opacity: root.entries.length > 0 && !root.clearingAll ? 1 : 0
+              visible: opacity > 0
+              Behavior on opacity { NumberAnimation { duration: Anatomy.fast; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+              label: root.tr("LIMPAR TUDO")
+              onActivated: root.clearAll()
             }
           }
 
-          // nothing yet
+          DndRow { width: parent.width }
+
+          // nothing yet (fades in once the last card has gone)
           Column {
             visible: root.entries.length === 0
+            opacity: visible ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
             width: parent.width
             topPadding: Style.space(18)
             bottomPadding: Style.space(22)
@@ -363,6 +382,161 @@ Panel {
   }
 
   // ---- pieces
+
+  // Do Not Disturb, said in words: what it is, whether it is on and what it
+  // does right now. The whole row switches it; on, it turns red and the bell
+  // gets its slash (here and on the bar).
+  component DndRow: Rectangle {
+    id: dndRow
+    readonly property bool on: root.dnd
+    height: Style.space(50)
+    radius: Anatomy.cardRadius + 4
+    color: on ? Qt.rgba(Anatomy.red.r, Anatomy.red.g, Anatomy.red.b, dndArea.containsMouse ? 0.13 : 0.09)
+      : dndArea.containsMouse ? Qt.rgba(1, 1, 1, 0.065) : Qt.rgba(1, 1, 1, 0.035)
+    border.width: Anatomy.hairline
+    border.color: on ? Qt.rgba(Anatomy.red.r, Anatomy.red.g, Anatomy.red.b, 0.4) : Anatomy.rim
+    Behavior on color { ColorAnimation { duration: 260; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+    Behavior on border.color { ColorAnimation { duration: 260; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+
+    MouseArea {
+      id: dndArea
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: root.setDnd(!root.dnd)
+    }
+
+    // the bell; on, it goes red and a slash draws across it from the top
+    Item {
+      id: dndIcon
+      x: Style.space(12)
+      anchors.verticalCenter: parent.verticalCenter
+      width: 20
+      height: 20
+      AnatomyIcon {
+        anchors.fill: parent
+        size: 20
+        path: Anatomy.icons.bell
+        color: dndRow.on ? Anatomy.red : Anatomy.muted
+        Behavior on color { ColorAnimation { duration: 260 } }
+      }
+      AnatomyIcon {
+        anchors.fill: parent
+        size: 20
+        path: "M4 4l16 16"
+        color: Anatomy.red
+        transformOrigin: Item.TopLeft
+        scale: dndRow.on ? 1 : 0.2
+        opacity: dndRow.on ? 1 : 0
+        Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+      }
+      // a small swing as it switches
+      transform: Rotation { id: dndSwing; origin.x: 10; origin.y: 2; angle: 0 }
+      SequentialAnimation {
+        id: dndRing
+        NumberAnimation { target: dndSwing; property: "angle"; to: -14; duration: 90; easing.type: Easing.OutCubic }
+        NumberAnimation { target: dndSwing; property: "angle"; to: 10; duration: 140; easing.type: Easing.InOutSine }
+        NumberAnimation { target: dndSwing; property: "angle"; to: -5; duration: 130; easing.type: Easing.InOutSine }
+        NumberAnimation { target: dndSwing; property: "angle"; to: 0; duration: 170; easing.type: Easing.OutCubic }
+      }
+      Connections { target: root; function onDndChanged() { dndRing.restart() } }
+    }
+
+    Column {
+      anchors.left: dndIcon.right
+      anchors.leftMargin: Style.space(11)
+      anchors.right: dndSwitch.left
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: 2
+      Row {
+        spacing: Style.space(7)
+        Text {
+          textFormat: Text.PlainText
+          anchors.verticalCenter: parent.verticalCenter
+          text: root.tr("Não perturbe")
+          color: Anatomy.strong
+          font.family: Anatomy.sans
+          font.pixelSize: 13
+          font.weight: Font.DemiBold
+        }
+        // the state, written (not only the colour)
+        Rectangle {
+          anchors.verticalCenter: parent.verticalCenter
+          width: stateText.implicitWidth + Style.space(10)
+          height: Style.space(16)
+          radius: height / 2
+          color: dndRow.on ? Qt.rgba(Anatomy.red.r, Anatomy.red.g, Anatomy.red.b, 0.16) : Qt.rgba(1, 1, 1, 0.06)
+          Behavior on color { ColorAnimation { duration: 260 } }
+          Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+          Text {
+            id: stateText
+            textFormat: Text.PlainText
+            anchors.centerIn: parent
+            text: root.tr(dndRow.on ? "LIGADO" : "DESLIGADO")
+            color: dndRow.on ? Anatomy.red : Anatomy.muted
+            font.family: Anatomy.mono
+            font.pixelSize: 9
+            font.weight: Font.Medium
+            font.letterSpacing: 0.6
+            Behavior on color { ColorAnimation { duration: 260 } }
+          }
+        }
+      }
+      // what it does now; the two sentences cross-fade
+      Item {
+        width: parent.width
+        height: offText.implicitHeight
+        Text {
+          id: offText
+          textFormat: Text.PlainText
+          width: parent.width
+          text: root.tr("Os avisos aparecem na tela.")
+          color: Anatomy.muted
+          font.family: Anatomy.sans
+          font.pixelSize: 11
+          elide: Text.ElideRight
+          opacity: dndRow.on ? 0 : 1
+          Behavior on opacity { NumberAnimation { duration: 220 } }
+        }
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          text: root.tr("Os avisos não aparecem na tela; ficam guardados aqui.")
+          color: Anatomy.text
+          font.family: Anatomy.sans
+          font.pixelSize: 11
+          elide: Text.ElideRight
+          opacity: dndRow.on ? 1 : 0
+          Behavior on opacity { NumberAnimation { duration: 220 } }
+        }
+      }
+    }
+
+    // the switch (the kit's knob is always blue; this one goes red)
+    Rectangle {
+      id: dndSwitch
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(14)
+      anchors.verticalCenter: parent.verticalCenter
+      width: 26
+      height: 15
+      radius: height / 2
+      color: dndRow.on ? Qt.rgba(Anatomy.red.r, Anatomy.red.g, Anatomy.red.b, 0.3) : Anatomy.faint
+      Behavior on color { ColorAnimation { duration: 260; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+      Rectangle {
+        width: 11
+        height: 11
+        radius: height / 2
+        anchors.verticalCenter: parent.verticalCenter
+        x: dndRow.on ? parent.width - width - 2 : 2
+        color: dndRow.on ? Anatomy.red : dndArea.containsMouse ? Anatomy.hi : Anatomy.mid
+        Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+        Behavior on color { ColorAnimation { duration: 260 } }
+      }
+    }
+  }
 
   component Pill: Rectangle {
     id: pill
@@ -432,7 +606,7 @@ Panel {
   }
 
   // Comes in (fades and rises a few px), staggered by `order`, each time
-  // the panel opens; folds away (fades, shrinks) when cleared.
+  // the panel opens; when cleared it slides aside, fades and folds away.
   component Entering: Item {
     id: enter
     property int order: 0
@@ -442,9 +616,13 @@ Panel {
     height: fullHeight * (leaving ? 0 : 1)
     opacity: leaving ? 0 : shown
     clip: leaving
-    transform: Translate { y: (1 - enter.shown) * Style.space(8) }
-    Behavior on height { NumberAnimation { duration: 170; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
-    Behavior on opacity { enabled: enter.leaving; NumberAnimation { duration: 140 } }
+    transform: Translate {
+      x: enter.leaving ? Style.space(36) : 0
+      y: (1 - enter.shown) * Style.space(8)
+      Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+    }
+    Behavior on height { NumberAnimation { duration: 240; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+    Behavior on opacity { enabled: enter.leaving; NumberAnimation { duration: 200; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
     function play() {
       shown = 0
       inAnim.restart()
@@ -471,10 +649,18 @@ Panel {
     width: column.width
 
     function clear() {
+      if (leaving) return
       leaving = true
+      root.clearSerial++
       clearTimer.start()
     }
-    Timer { id: clearTimer; interval: 180; onTriggered: root.clearGroup(groupView.group) }
+    Timer { id: clearTimer; interval: 260; onTriggered: root.clearGroup(groupView.group) }
+    // LIMPAR TUDO: every group leaves, one after the other from the top
+    Timer { id: leaveTimer; interval: Math.min(groupView.order, 8) * 45 + 1; onTriggered: groupView.leaving = true }
+    Connections {
+      target: root
+      function onClearingAllChanged() { if (root.clearingAll) leaveTimer.restart() }
+    }
 
     Column {
       width: parent.width
@@ -544,6 +730,7 @@ Panel {
         }
         Card {
           id: topCard
+          owner: groupView
           entry: groupView.group.items[0] || ({})
           icon: groupView.group.icon
           appName: groupView.group.name
@@ -561,6 +748,7 @@ Panel {
           order: index
           width: groupView.width
           Card {
+            owner: groupView
             entry: modelData
             icon: groupView.group.icon
             appName: groupView.group.name
@@ -583,25 +771,34 @@ Panel {
     property bool leaving: false
     signal picked()
 
+    // the group it belongs to: the last one of an app takes the whole group
+    property var owner: null
     function remove() {
+      if (leaving) return
+      if (owner && owner.count === 1) { owner.clear(); return }
       leaving = true
+      root.clearSerial++
       removeTimer.start()
     }
-    Timer { id: removeTimer; interval: 170; onTriggered: { if (card.selected) root.selectedFile = ""; root.removeEntry(card.entry) } }
+    Timer { id: removeTimer; interval: 250; onTriggered: { if (card.selected) root.selectedFile = ""; root.removeEntry(card.entry) } }
 
     width: column.width
     readonly property real naturalHeight: Math.max(cardIcon.height, textCol.implicitHeight) + Style.space(22)
     height: leaving ? 0 : naturalHeight
     opacity: leaving ? 0 : 1
     clip: true
+    transform: Translate {
+      x: card.leaving ? Style.space(36) : 0
+      Behavior on x { NumberAnimation { duration: 240; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+    }
     radius: Anatomy.cardRadius + 4
     color: selected ? Qt.rgba(1, 1, 1, 0.075) : cardArea.containsMouse ? Qt.rgba(1, 1, 1, 0.065) : Qt.rgba(1, 1, 1, 0.045)
     border.width: Anatomy.hairline
     border.color: selected ? Qt.rgba(1, 1, 1, 0.16) : Anatomy.rim
     Behavior on color { ColorAnimation { duration: Anatomy.fast } }
     Behavior on border.color { ColorAnimation { duration: Anatomy.fast } }
-    Behavior on height { NumberAnimation { duration: 170; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
-    Behavior on opacity { NumberAnimation { duration: 140 } }
+    Behavior on height { NumberAnimation { duration: 240; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
+    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.Bezier; easing.bezierCurve: Anatomy.ease } }
 
     MouseArea {
       id: cardArea

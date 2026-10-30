@@ -13,6 +13,9 @@ BarWidget {
   moduleName: "io.github.hugorolimf.inbox"
 
   readonly property int unseen: panelLoader.item ? panelLoader.item.unseen : 0
+  // for Island Bar's bell: red and slashed on Do Not Disturb; rings on a clear
+  readonly property bool dnd: panelLoader.item ? panelLoader.item.dnd === true : false
+  readonly property int clearSerial: panelLoader.item ? panelLoader.item.clearSerial : 0
 
   function injectPanel() {
     var target = panelLoader.item
