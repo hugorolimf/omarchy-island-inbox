@@ -22,6 +22,15 @@ the notification came from.
   show with the app's real icon.
 - 🌍 English or Portuguese, following your system language.
 
+## See it
+
+Recorded on a real desktop, mouse and clicks included, with sample notifications.
+The panel follows the system language; this take is in Portuguese.
+
+**Do Not Disturb, clearing a group, showing every notice of an app**, from the bell.
+
+![Island Inbox](assets/inbox.gif)
+
 ## Requirements
 
 - [Island Kit](https://github.com/hugorolimf/omarchy-island-kit): the panel is drawn with it.
