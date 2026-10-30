@@ -25,6 +25,9 @@ the notification came from.
 ## Requirements
 
 - [Island Kit](https://github.com/hugorolimf/omarchy-island-kit): the panel is drawn with it.
+  Without it, the plugin shows an "Install Island Kit" button on the bar (in
+  Portuguese, "Instale o Island Kit"); clicking it installs the Kit and restarts
+  the shell.
 - Omarchy's notifications (or [Island Notch](https://github.com/hugorolimf/omarchy-island-notch), which serves them in the notch):
   it reads their history in `~/.local/state/omarchy/notifications/history`.
 - `inotifywait` (inotify-tools) to follow new notifications live.
