@@ -25,7 +25,7 @@ the notification came from.
 ## Requirements
 
 - [Island Kit](https://github.com/hugorolimf/omarchy-island-kit): the panel is drawn with it.
-- Omarchy's notifications (or [Glass Notifications](https://github.com/hugorolimf/omarchy-notifications)):
+- Omarchy's notifications (or [Island Notch](https://github.com/hugorolimf/omarchy-island-notch), which serves them in the notch):
   it reads their history in `~/.local/state/omarchy/notifications/history`.
 - `inotifywait` (inotify-tools) to follow new notifications live.
 
